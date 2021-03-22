@@ -1,0 +1,87 @@
+Command:
+sh create_single_branch.sh $from_branch $branch_create $bitbucket_user 
+Script:
+#!/bin/sh
+#exec &> create-branch-capture.txt
+#exec > create-branch-capture.txt
+
+project_list=("testrepository")
+
+
+from_branch=$1
+
+# Get version argument and verify
+version=$2
+if [ -z "$version" ]; then
+  echo "Please specify a version"
+  exit
+fi
+
+#bitbucket_user=$3
+#bitbucket_password=$4
+
+working_dir=$(pwd)
+
+
+for i in "${project_list[@]}"
+do
+	projectName=$i
+	if [ -d "../$projectName" ]
+	then
+		echo "Project $projectName Directory Exists, so deleting the $projectName workspace"
+		rm -rf ../$projectName
+		echo "Project Cloning $projectName"
+		cd ../
+		git clone git@bitbucket.org:<GitURLPath>/$projectName.git
+		cd $working_dir
+	else
+		echo "Project $projectName Directory Does not exist.Cloning $projectName"
+		#git clone https://$bitbucket_user:$bitbucket_password@bitbucket.org/<GitURLPath>/$projectName.git
+		#git clone https://bitbucket.org/<GitURLPath>/$projectName.git
+		cd ../
+		git clone git@bitbucket.org:<GitURLPath>/$projectName.git
+		cd $working_dir
+	fi
+	
+	cd ../$projectName
+	echo "Creating release branch version $version for $projectName"
+	echo "Starting release for version $version"
+	echo "-------------------------------------------------------------------------"
+	
+	# Get current branch and checkout if needed
+	branch=$(git symbolic-ref --short -q HEAD)
+	if [ "$branch" != "$from_branch" ]; then
+		git checkout $from_branch
+	fi
+		
+	# Ensure working directory in version branch clean
+	git update-index -q --refresh
+	
+	if ! git diff-index --quiet HEAD --; then
+		echo "Working directory not clean, please commit your changes first"
+		git reset HEAD --hard
+	fi
+	
+	git pull origin $from_branch
+
+	if [ `git branch | grep $version` ]
+	then
+        	echo "Branch already exists"
+	    	git branch -d $version
+	    	git branch
+	else
+	    	echo "Branch does not exist"
+	fi
+		
+	git checkout -b $version
+		
+	git push origin $version
+		
+	# Success
+	echo " branch for $version created successfully"
+	echo "deleting the repository $projectName"
+	rm -rf ../$projectName
+	echo "---------------------------------END----------------------------------------"
+	
+	cd $working_dir
+done
