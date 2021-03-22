@@ -1,0 +1,103 @@
+Command:
+sh master_push.sh $version $bitbucket_user
+Script:
+#!/bin/sh
+#exec > master-push.txt
+project_list=("Project1" \
+"Project2" )
+# Get version argument and verify
+version=$1
+if [ -z "$version" ]; then
+  echo "Please specify a version"
+  exit
+fi
+shopt -s extglob
+#bitbucket_user=$2
+#bitbucket_password=$3
+project_with_no_diff=""
+project_with_diff=""
+project_with_err=""
+working_dir=$(pwd)
+mkdir $version
+tag=$(sed -e 's#.*-\(\)#\1#' <<< "$version")
+
+for i in "${project_list[@]}"
+do
+	projectName=$i
+	echo "cloning Project $projectName for branch master"
+	if [ -d "$projectName" ]
+	then
+	    echo "Project $projectName Directory Exists, so deleting the $projectName workspace"
+		rm -rf $projectName
+		echo "Project Cloning $projectName"
+		git clone git@bitbucket.org:<GitURLPath>/$projectName
+	else
+        cd $working_dir
+		echo "Project $projectName Directory Does not exist.Cloning $projectName"		
+		#git clone https://$bitbucket_user:$bitbucket_password@bitbucket.org/<GitURLPath>/$projectName.git
+		git clone git@bitbucket.org:<GitURLPath>/$projectName
+	fi
+	
+	echo "cloning branch $version"
+	
+	cd $working_dir/$version
+	if [ -d "$projectName" ]
+	then
+	    echo "Project $projectName Directory Exists, so deleting the $projectName workspace"
+		rm -rf $projectName
+		echo "Cloning $projectName from release-$version"
+		git clone git@bitbucket.org:<GitURLPath>/$projectName -b $version
+	else
+        cd $working_dir/$version
+		echo "Directory Does not exist.Cloning $projectName from release-$version"		
+		#git clone git:$bitbucket_password@bitbucket.org/<GitURLPath>/$projectName.git
+		git clone git@bitbucket.org:<GitURLPath>/$projectName -b $version
+	fi
+
+    loc=$working_dir/$version/$projectName
+    #check for release repo
+    if cd $loc 2> /dev/null
+    then 
+    echo "deleting .git folder from location $working_dir/$version/$projectName"
+    rm -rf $working_dir/$version/$projectName/.git
+    else 
+    echo "The directory $loc doesn't exist"
+	project_with_err=$project_with_err"\n"$projectName
+    continue
+    fi
+    #check for the master repo
+    if cd $working_dir/$projectName 2> /dev/null
+	then
+    cd $working_dir/$projectName
+    echo "deleting files from $working_dir/$projectName"
+    rm -rf !(.git)
+	cp -r $working_dir/$version/$projectName/*  $working_dir/$projectName/
+    diff_=$(git diff -- $pwd)
+	if [ -z "$diff_" ]
+	then
+		project_with_no_diff=$project_with_no_diff"\n"$projectName
+		echo "$projectName no difference"
+	else
+		project_with_diff=$project_with_diff"\n"$projectName
+		echo "$projectName difference"	
+	fi
+	
+	git add --all
+	git commit -a -m "pushing changes from $version to master"
+	git push origin master
+	# to tag master with  version
+	git tag -a v$tag -m "$version mergerd to v$tag" &&\
+	git push --tags
+    else 
+    echo "The directory doesn't exist"
+	project_with_err=$project_with_err"\n"$projectName
+    continue
+    fi
+	cd $working_dir
+done
+echo "-----------------------------------------------------------------------------------------------------"
+echo -e "below is the project list for whom there is no difference found between master and $version  $project_with_no_diff"
+echo "-----------------------------------------------------------------------------------------------------"
+echo -e "below is the project list for whom there is difference found between master and $version $project_with_diff"
+echo "-----------------------------------------------------------------------------------------------------"
+echo -e "below is the project list for whom there was error while cloning $project_with_err"
