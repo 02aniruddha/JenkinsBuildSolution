@@ -1,0 +1,302 @@
+## Silent installer Powershell Command
+Start-Process -Wait -FilePath "setup.exe" -ArgumentList "/S /v /qn" -passthru
+for /f "usebackq tokens=* delims=," %%a in ("A2.csv") do ( 
+	  echo %%a )
+-------------------------------------------------------------------------------------------
+## Zip/Compress artifacts folder Powershell Command:
+$compress = @{
+  Path = "\\CAPMPTLAP0093\Temp\20.10.1.0.2020_10_13_10_55_27\"
+  CompressionLevel = "Fastest"
+  DestinationPath = ".\20.10.1.0.2020_10_13_10_55_28.zip"
+}
+Compress-Archive @compress
+------------------------Kill Processes using Windows Batch Script--------------------------
+@echo off
+"E:\<PathToEXE>\KillProcesses.exe" 1
+SET errorcode=%errorlevel%
+echo The Error code of KillProcesses is %errorcode%
+IF %errorcode% equ 0 (
+exit /b 0
+) ELSE IF %errorcode% neq 0 (
+exit /b 1
+)
+------------------------Rename SetupFile with GitHash via Windows Batch Script-------------
+@echo on
+set dirpath=%1
+setlocal EnableDelayedExpansion
+git log -1 --pretty=format:"%%H" >> revision.txt
+for /F "tokens=*" %%A in (revision.txt) do (
+    set var=%%A
+)
+del /s revision.txt
+mkdir "%dirpath%\%var%"
+
+set returnvalue="%dirpath%\%var%"
+
+ENDLOCAL&set %~2=%returnvalue%
+--------------------Clear Directory containing Dirs & Files Windows Batch Script-------------
+set dir=%~1
+
+del "%dir%\*" /F /Q
+
+for /d %%p in ("%dir%\*") Do rd /Q /S "%%p"
+-------------------------WhiteSource Scan command Windows Batch Script-----------------------
+java -jar E:\whitesource\wss-unified-agent.jar -c E:\whitesource\wss-unified-agent.config -product <NAMEOFPRODUCT> -project %JOB_NAME% -d "%workspace%\Setup\<packagingFolder>"
+-------------------------Restart Windows Service via Windows Batch Script---------------------
+@echo off
+sc \\%DestinationIP% stop %ServiceName%
+waitfor SomethingThatIsNeverHappening /t 30 2>NUL
+sc \\%DestinationIP% query %ServiceName%
+echo.
+echo %Restart% is STOPPED successfully
+echo.
+sc \\%DestinationIP% start %ServiceName%
+waitfor SomethingThatIsNeverHappening /t 30 2>NUL
+sc \\%DestinationIP% query %ServiceName%
+set Service=NO
+echo.
+echo.
+sc \\%DestinationIP% query %ServiceName% | find /I "running">nul && set Service=YES
+if %Service%==YES (echo %Restart% is RESTARTED successfully on %DestinationIP% && echo. && echo. && EXIT /B 0) else (echo %Restart% is NOT-RUNNING on %DestinationIP% && echo. && echo SUGGESTIONS- Please open %DestinationIP% and verify Service "Logon"/ try manually starting service / Check %DirectoryPath% for new attribute addition && echo. && echo. && EXIT /B 1)
+-------------------------Check GitBranch Created using Shell---------------------
+#!/bin/sh
+
+project_list=("Project1" \
+"Project2" \
+"Project3")
+
+project_does_not_exit=""
+project_exit=""
+
+# Get version argument and verify
+version=$1
+if [ -z "$version" ]; then
+  echo "Please specify a version"
+  exit
+fi
+
+bitbucket_user=$2
+#bitbucket_password=$3
+
+working_dir=$(pwd)
+
+for i in "${project_list[@]}"
+do
+	projectName=$i
+	
+     count=$( git ls-remote git@bitbucket.org:<SSHGitURLPath>/$projectName.git $version )
+	
+	if [[ -n "$count" ]]
+	then
+	    	
+			#echo "$projectName with $version exist"
+			project_exit=$project_exit"\n"$projectName
+	else
+			
+		#	echo "$projectName with $version does not exist"
+			project_does_not_exit=$project_does_not_exit"\n"$projectName
+
+	fi
+	
+	
+	cd $working_dir
+done
+echo "-----------------------------------------------------------------------------------------------------"
+echo -e "below is the project list for whom branch with $version does not exist $project_does_not_exit"
+echo "-----------------------------------------------------------------------------------------------------"
+echo -e "below is the project list for whom branch with $version  exist $project_exit"
+echo "-----------------------------------------------------------------------------------------------------"
+
+-------------------------Create Git Branch using Shell---------------------
+## Command to call script with parameters:
+sh ./create-branch-capture.sh $from_branch  $branch_create
+Script:
+#!/bin/sh
+#exec &> create-branch-capture.txt
+#exec > create-branch-capture.txt
+
+project_list=("Project1" \
+"Project2" \
+"Project3")
+
+
+from_branch=$1
+
+# Get version argument and verify
+version=$2
+if [ -z "$version" ]; then
+  echo "Please specify a version"
+  exit
+fi
+
+#bitbucket_user=$3
+#bitbucket_password=$4
+
+working_dir=$(pwd)
+
+
+for i in "${project_list[@]}"
+do
+	projectName=$i
+	if [ -d "../$projectName" ]
+	then
+		echo "Project $projectName Directory Exists, so deleting the $projectName workspace"
+		rm -rf ../$projectName
+		echo "Project Cloning $projectName"
+		cd ../
+		git clone git@bitbucket.org:<GitURLPath>/$projectName.git
+		cd $working_dir
+	else
+		echo "Project $projectName Directory Does not exist.Cloning $projectName"
+		#git clone https://$bitbucket_user:$bitbucket_password@bitbucket.org/<GitURLPath>/$projectName.git
+		#git clone https://bitbucket.org/<GitURLPath>/$projectName.git
+		cd ../
+		git clone git@bitbucket.org:<GitURLPath>/$projectName.git
+		cd $working_dir
+	fi
+	
+	cd ../$projectName
+	echo "Creating release branch version $version for $projectName"
+	echo "Starting release for version $version"
+	echo "-------------------------------------------------------------------------"
+	
+	# Get current branch and checkout if needed
+	branch=$(git symbolic-ref --short -q HEAD)
+	if [ "$branch" != "$from_branch" ]; then
+		git checkout $from_branch
+	fi
+		
+	# Ensure working directory in version branch clean
+	git update-index -q --refresh
+	
+	if ! git diff-index --quiet HEAD --; then
+		echo "Working directory not clean, please commit your changes first"
+		git reset HEAD --hard
+	fi
+	
+	git pull origin $from_branch
+
+	if [ `git branch | grep $version` ]
+	then
+        	echo "Branch already exists"
+	    	git branch -d $version
+	    	git branch
+	else
+	    	echo "Branch does not exist"
+	fi
+		
+	git checkout -b $version
+		
+	git push origin $version
+		
+	# Success
+	echo " branch for $version created successfully"
+	echo "deleting the repository $projectName"
+	rm -rf ../$projectName
+	echo "---------------------------------END----------------------------------------"
+	
+	cd $working_dir
+done
+-------------------------Merge Single Git Branch using Shell---------------------
+Command:
+sh test.sh $version $bitbucket_user
+Script:
+#!/bin/sh
+#exec > master-push.txt
+project_list=("testrepository")
+# Get version argument and verify
+version=$1
+if [ -z "$version" ]; then
+  echo "Please specify a version"
+  exit
+fi
+shopt -s extglob
+#bitbucket_user=$2
+#bitbucket_password=$3
+project_with_no_diff=""
+project_with_diff=""
+project_with_err=""
+working_dir=$(pwd)
+mkdir $version
+tag=$(sed -e 's#.*-\(\)#\1#' <<< "$version")
+
+for i in "${project_list[@]}"
+do
+	projectName=$i
+	echo "cloning Project $projectName for branch master"
+	if [ -d "$projectName" ]
+	then
+	    echo "Project $projectName Directory Exists, so deleting the $projectName workspace"
+		rm -rf $projectName
+		echo "Project Cloning $projectName"
+		git clone git@bitbucket.org:<GitURLPath>/$projectName
+	else
+        cd $working_dir
+		echo "Project $projectName Directory Does not exist.Cloning $projectName"		
+		#git clone https://$bitbucket_user:$bitbucket_password@bitbucket.org/<GitURLPath>/$projectName.git
+		git clone git@bitbucket.org:<GitURLPath>/$projectName
+	fi
+	
+	echo "cloning branch $version"
+	
+	cd $working_dir/$version
+	if [ -d "$projectName" ]
+	then
+	    echo "Project $projectName Directory Exists, so deleting the $projectName workspace"
+		rm -rf $projectName
+		echo "Cloning $projectName from release-$version"
+		git clone git@bitbucket.org:<GitURLPath>/$projectName -b $version
+	else
+        cd $working_dir/$version
+		echo "Directory Does not exist.Cloning $projectName from release-$version"		
+		#git clone git:$bitbucket_password@bitbucket.org/<GitURLPath>/$projectName.git
+		git clone git@bitbucket.org:<GitURLPath>/$projectName -b $version
+	fi
+
+    loc=$working_dir/$version/$projectName
+    #check for release repo
+    if cd $loc 2> /dev/null
+    then 
+    echo "deleting .git folder from location $working_dir/$version/$projectName"
+    rm -rf $working_dir/$version/$projectName/.git
+    else 
+    echo "The directory $loc doesn't exist"
+	project_with_err=$project_with_err"\n"$projectName
+    continue
+    fi
+    #check for the master repo
+    if cd $working_dir/$projectName 2> /dev/null
+	then
+    cd $working_dir/$projectName
+    echo "deleting files from $working_dir/$projectName"
+    rm -rf !(.git)
+	cp -r $working_dir/$version/$projectName/*  $working_dir/$projectName/
+    diff_=$(git diff -- $pwd)
+	if [ -z "$diff_" ]
+	then
+		project_with_no_diff=$project_with_no_diff"\n"$projectName
+		echo "$projectName no difference"
+	else
+		project_with_diff=$project_with_diff"\n"$projectName
+		echo "$projectName difference"	
+	fi
+	
+	git add --all
+	git commit -a -m "pushing changes from $version to master"
+	git push origin master
+	# to tag master with  version
+	git tag -a v$tag -m "$version mergerd to v$tag" &&\
+	git push --tags
+    else 
+    echo "The directory doesn't exist"
+	project_with_err=$project_with_err"\n"$projectName
+    continue
+    fi
+	cd $working_dir
+done
+echo "-----------------------------------------------------------------------------------------------------"
+echo -e "below is the project list for whom there is no difference found between master and $version  $project_with_no_diff"
+echo "-----------------------------------------------------------------------------------------------------"
+echo -e "below is the project list for whom there is difference found between master and $version $project_with_diff"
+echo "-----------------------------------------------------------------------------------------------------"
+echo -e "below is the project list for whom there was error while cloning $project_with_err"
