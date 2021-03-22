@@ -1,0 +1,26 @@
+---
+- hosts: windows
+  vars:
+    - remotebuild: 'remotebuild'
+    - remotebuild2: 'remotebuild2'
+  tasks:
+    - name: stop a service
+      win_service:
+        name: <ServiceName in Service.msc>
+        state: stopped
+        
+    - name: Remove directory structure
+      win_file:
+       path: '{{remotebuild}}'
+       state: absent
+       ignore_errors: True
+       
+    - name: Copy the build to host(complete installation directory from other running location)
+      win_copy: 
+        src: '/home/capsilon/Jenkins/<NewLocation>/<Service>'
+        dest: '{{remotebuild2}}'
+        
+    - name: start a service
+      win_service:
+        name: <ServiceName in Service.msc>
+        state: started
