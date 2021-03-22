@@ -34,6 +34,15 @@ mkdir "%dirpath%\%var%"
 set returnvalue="%dirpath%\%var%"
 
 ENDLOCAL&set %~2=%returnvalue%
+------------------------Rename SetupFile with DateandTime via Windows Batch Script-------------
+@echo on   
+set dirpath=%1
+setlocal EnableDelayedExpansion
+set name=%time:~0,2%.%time:~3,2%.%time:~6,2%
+mkdir "%dirpath%\%name%"
+
+set returnvalue="%dirpath%\%name%"
+ENDLOCAL&set %~2=%returnvalue%
 --------------------Clear Directory containing Dirs & Files Windows Batch Script-------------
 set dir=%~1
 
