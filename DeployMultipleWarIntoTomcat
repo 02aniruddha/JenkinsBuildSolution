@@ -87,3 +87,25 @@
       win_service:
         name: oss-agent
         state: started
+        
+### Host File ##      
+[widget:vars]
+ansible_user=Administrator
+ansible_password=<password of machine>
+ansible_connection=winrm
+ansible_port=5986
+ansible_winrm_server_cert_validation=ignore
+
+[hub:vars]
+ansible_user=Administrator
+ansible_password=<password of machine>
+ansible_connection=winrm
+ansible_port=5986
+ansible_winrm_server_cert_validation=ignore
+
+
+[widget]
+192.168.X.X
+
+[hub]
+192.168.X.X
