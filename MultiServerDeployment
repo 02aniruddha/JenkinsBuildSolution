@@ -1,0 +1,48 @@
+@echo on
+set Deploy=%1
+set Branch=%2
+set env=%3
+## to remove double quotes supplied to DirectoryPath commandline arguement while calling this script via @call
+set DirectoryPath=%4
+set DirectoryPath=%DirectoryPath:"=%
+set Logs=%5
+set Logs=%Logs:"=%
+set ServiceName=%6
+echo %Deploy%, %env%, %Branch%, %DirectoryPath%, %Logs%, %ServiceName%
+
+setlocal enabledelayedexpansion 
+ 
+for /F "usebackq tokens=*" %%a in ("E:\env\%Deploy%\%env%.txt") do call :Foo %%a
+del /f .\*.txt
+echo deleted txt
+goto End 
+:Foo
+set DestinationIP=%1
+echo --------------------------- Deploying on %DestinationIP% ---------------------------
+set dir=\\%DestinationIP%\c$\%Deploy%\%Branch%
+del "%dir%\*" /Q /S /F
+
+echo D|xcopy /E /Y "E:\%Deploy%\Artifacts\ReadyMadeBuilds\%Branch%" "\\%DestinationIP%\c$\%Deploy%\%Branch%"
+echo "Build copy on remote machine completed with error code: %ERRORLEVEL%"
+copy /Y "\\%DestinationIP%\c$\Program Files (x86)\%DirectoryPath%" "\\%DestinationIP%\c$\%Deploy%\%Branch%"
+echo "Config copied in installation folder with error code: %ERRORLEVEL%"
+
+Psexec \\%DestinationIP% C:\%Deploy%\%Branch%\RunInstaller.bat
+if %ERRORLEVEL% GEQ 1 EXIT /B 1
+
+set dir=\\%DestinationIP%\c$\Program Files (x86)\%Logs%
+del "%dir%\*" /Q /S /F
+for /d %%p in ("%dir%\*") Do rd /Q /S "%%p"
+echo %ERRORLEVEL% 
+
+sc \\%DestinationIP% start %ServiceName%
+waitfor SomethingThatIsNeverHappening /t 30 2>NUL
+sc \\%DestinationIP% query %ServiceName%
+set Service=NO
+echo.
+echo.
+sc \\%DestinationIP% query %ServiceName% | find /I "running">nul && set Service=YES
+if %Service%==YES (echo %Deploy%-%Branch% is successfully DEPLOYED and RUNNING on %DestinationIP% && echo. && echo. && EXIT /B 0) else (echo %Deploy%-%Branch% is NOT-RUNNING on %DestinationIP% && echo. && echo SUGGESTIONS- Please open %DestinationIP% and verify Service "Logon" && echo. try manually starting service && echo. Check %DirectoryPath% for new attribute addition or Configuration modification failure && echo. && echo. && EXIT /B 1)
+echo %DestinationIP%
+goto :eof 
+:End
