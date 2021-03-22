@@ -1,0 +1,34 @@
+@echo on
+
+set Branch=%1
+## Copy externals to workspaces folder
+xcopy /E /Y "E:\External Lib\%Component%\External" .\External\
+
+if %ERRORLEVEL% GEQ 1 EXIT /B 1
+## Copy additionalFiles to workspaces folder
+xcopy /E /Y "E:\External Lib\%Component%\additionalFiles" .\additionalFiles\
+
+if 0 GEQ 1 EXIT /B 1
+## Copy required files from workspace's externals to workspace's packaging folder from where NSIS setup will be generated
+xcopy /E /Y ".\External\ThirdParty" .\Setup\BuildRequisites
+
+if %ERRORLEVEL% GEQ 1 EXIT /B 1
+## Build Solution using Visual Studio
+"C:\Program Files (x86)\Microsoft Visual Studio\2017\Professional\Common7\IDE\devenv.com" .\Solution.sln /REBUILD "Release|Mixed Platforms" 
+
+if %ERRORLEVEL% GEQ 1 EXIT /B 1
+## Using workspace's packaging folder containing NSIS setup(.nsi script) file, create a setup using NSIS exe.
+"C:\Program Files (x86)\NSIS\makensis.exe" .\Setup\Installer.nsi
+
+if %ERRORLEVEL% GEQ 1 EXIT /B 1
+
+echo "***Post Build Task***"
+## Clean the directory location where new setup will be copied
+set dir=E:\%Component%\Artifacts\%Component%_%Branch%
+del "%dir%\*" /Q /S /F
+for /d %%p in ("%dir%\*") Do rd /Q /S "%%p"
+echo %ERRORLEVEL%
+Copy the Setup into final location(cleaned above) from workspace's packaging folder.
+xcopy /E /Y "%WORKSPACE%\Setup\*.*" E:\%Component%\Artifacts\%Component%_%Branch%\
+
+if %ERRORLEVEL% GEQ 1 EXIT /B 1
