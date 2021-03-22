@@ -1,0 +1,19 @@
+---
+- hosts: acc1
+  vars:
+    - remotebuild: 'remotebuild'
+    - remotebuild2: 'remotebuild2'
+  tasks:
+    - name: stop tomcat
+      win_command: 'taskkill /F /IM Tomcat8.exe'
+      ignore_errors: True
+        
+    - name: Remove log file
+      win_file:
+        path: C:\Program Files\Apache Software Foundation\Tomcat 8.0\logs\
+        state: absent
+        
+    - name: start a service
+      win_service:
+        name: Tomcat8
+        state: started
