@@ -1,0 +1,89 @@
+---
+- hosts: widget
+  
+  tasks:
+    - name: stop tomcat
+      win_command: 'taskkill /F /IM Tomcat8.exe'
+      ignore_errors: True
+        
+    - name: Remove log file
+      win_file:
+        path: C:\Program Files\Apache Software Foundation\Tomcat 8.0\logs\
+        state: absent
+
+    - name: unistall builds (war)
+      win_file:
+        path: C:\Program Files\Apache Software Foundation\Tomcat 8.0\webapps\{{ item }}
+        state: absent
+      with_items:
+        - Proj1
+        - Proj2
+        - Proj3
+
+    - name: unistall builds (folder)		
+      win_file:
+        path: C:\Program Files\Apache Software Foundation\Tomcat 8.0\webapps\{{ item }}
+        state: absent
+      with_items:
+        - Proj1
+        - Proj2
+        - Proj3
+
+    - name: deploy build
+      win_copy:
+        src: /home/capsilon/UI-Widget/int2-ui/
+        dest: C:\Program Files\Apache Software Foundation\Tomcat 8.0\webapps\
+        force: yes        
+
+    - name: start a service
+      win_service:
+        name: Tomcat8
+        state: started
+
+    - name: Wait for 5 minutes for Tomcat up and run, While all war will be extracting.
+      win_wait_for:
+        timeout: 150
+        delegated_to: widget
+
+    - name: copy web-context-oss
+      win_copy:
+        src: /home/capsilon/script/ui-build/web-context.oss
+        dest: C:\Program Files\Apache Software Foundation\Tomcat 8.0\webapps\<ComponentName>\
+        force: yes
+
+    - name: Getting version from pom.properties
+      win_command: findstr "version=" "C:\Program Files\Apache Software Foundation\Tomcat 8.0\webapps\<ComponentName>\META-INF\maven\com.springapp\<ComponentName>\pom.properties"
+      register: result
+    - debug: var=result
+
+    - name: change version of web-context-oss
+      win_lineinfile:
+        path: C:\Program Files\Apache Software Foundation\Tomcat 8.0\webapps\<ComponentName>\web-context.oss
+        regexp: '^version='
+        line: "{{ result.stdout_lines[0] }}"
+
+    - name: change spoke of web-context-oss
+      win_lineinfile:
+        path: C:\Program Files\Apache Software Foundation\Tomcat 8.0\webapps\<ComponentName>\web-context.oss
+        regexp: '^spokeId='
+        line: "spokeId=Env_SPOKE1"
+
+    - name: change date and time of web-context-oss
+      win_lineinfile:
+        path: C:\Program Files\Apache Software Foundation\Tomcat 8.0\webapps\<ComponentName>\web-context.oss
+        regexp: '^description='
+        line: "description=Deployed using Jenkins on {{ ansible_date_time.date }}"
+
+    - name: stop Oss-Agent
+      win_command: 'taskkill /F /IM wrapper.exe'
+      ignore_errors: True
+
+    - name: Remove Oss-Agent log file
+      win_file:
+        path: C:\oss-agent\logs\
+        state: absent
+
+    - name: start Oss-Agent
+      win_service:
+        name: oss-agent
+        state: started
