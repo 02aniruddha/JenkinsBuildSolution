@@ -1,0 +1,514 @@
+#!groovy
+import java.io.*
+
+import org.apache.commons.io.FileUtils
+
+File folder = new File("/home/<pathToScript>/Jenkins/ProjectVersions/<ProjectName>")
+FileUtils.cleanDirectory(folder)
+
+//-------Things to be changed depending upon the projects-------
+env.adminProj="<ProjectName>"
+//env.adminProj="<ProjectName>"
+env.deployableProj = "<ProjectName>"           //ProjectName from Build directory : resultant of adminProj
+env.bitbucketTeam="<bitbucketURL>"
+
+env.Script_Path="/home/<pathToScript>/Scripts_and_Properties"
+env.Config_Path="$Script_Path/Config_Files"
+env.Details_Path="$Script_Path/Detail_Files"
+env.ProjectPropertiesCSV = "WebAndService_AntStruct.csv"
+env.jenkins_log_token = "XXXXXXXXXXXX"
+
+branch=env.Workspace_Branch
+devBranch=env.SCM_Branch
+buildOrdeploy = env.Build_or_BuildDeploy
+deployOperation = env.Deploy_Operation
+deployEnv = env.Environment
+
+env.EvnServers = ""
+env.PropertiesFile = ""
+env.channelname = ""
+env.channeltoken = ""
+
+if(deployEnv.equals("Integration1"))
+{
+    EvnServers="EnvironmentName-ServerAndSpoke.csv"
+    PropertiesFile="<EnvironmentPropertyFile>.properties"
+    channelname="<slackChannelName>"
+    channeltoken="<slackChannelToken>"
+}
+
+
+env.lastCommit=""
+env.latestCommit=""
+env.logIdentity = ""
+
+//xvelocity-ui specific variables (To make the version number entry)
+buildversion = env.BuildNumber
+env.projectBuildVersion = ""
+env.vcsCommitid = ""
+env.finalBuildVersionEntry = ""
+env.versionForBuild = ""
+
+node{
+    try
+    {
+    // 	notifyBuild('STARTED')
+    	print "Jenkins log folder for build : $JENKINS_HOME/jobs/$JOB_NAME/builds/$BUILD_NUMBER"
+    	env.buildLogs = "$JENKINS_HOME/jobs/$JOB_NAME/builds/$BUILD_NUMBER"
+    	env.changelogs = "ChangeLogs-"+"$JOB_NAME"+"-"+"Build-$BUILD_NUMBER"+".txt"
+
+        stage ('STAGE-1_SCM-Checkout')
+        {
+            logIdentity = "STAGE-1_SCM-Checkout"
+            try
+            {
+                node
+                {
+                    
+
+					vcsOperaion(adminProj, devBranch)
+					versionForBuild = prepareVerion("increment")
+					
+					/* Blocking following to import testautomation as we prepared a separate project for this purpose. named : pipeline_<ProjectName>-testautomation */
+				    // vcsOperaion(autoTestProj, devBranch)
+                }
+            }
+            catch(Exception e)
+            {
+                catchErrorLogs(logIdentity)
+            }
+        }
+        
+        stage ('STAGE-2_Code-Analysis')
+        {
+            logIdentity = "STAGE-2_Code-Analysis"
+            try
+            {
+                node
+                {
+                    print "\t*********************************************      Code Analysis     *********************************************"
+                    print "\t__________________________________________________________________________________________________________________\n"
+                    workspaceCleanup()
+                    // sh "cd $adminProj && gradle -DenvProperties=$Config_Path/$PropertiesFile -Pbranch=$branch -PprojBuildVersion=$versionForBuild npm_install prodInfoCorrection gulpSonarQube"
+                    boolean decision = nodeModuleSearch()
+                    
+                    if(decision)
+                    {
+                        print "Package.json is present and we will run npm_install in this case to install latest 'node_modules'"
+                        sh "cd $adminProj && gradle -DenvProperties=$Config_Path/$PropertiesFile -Pbranch=$branch -PprojBuildVersion=$versionForBuild npm_install prodInfoCorrection"
+                    }
+                    else
+                    {
+                        print "Package.json is NOT present and So, no need to run npm_install"
+                        sh "cd $adminProj && gradle -DenvProperties=$Config_Path/$PropertiesFile -Pbranch=$branch -PprojBuildVersion=$versionForBuild prodInfoCorrection"
+                    }
+                }
+            }
+            catch(Exception e)
+            {
+                catchErrorLogs(logIdentity)
+            }
+        }
+        
+        stage ('STAGE-3_Compile-Code')
+        {
+            logIdentity = "STAGE-3_Compile-Code"
+            try
+            {
+                node
+                {
+                    print "\t*********************************************      Compile-Code     *********************************************"
+                    print "\t__________________________________________________________________________________________________________________\n"
+                    sh "cd $adminProj &&  gradle -DenvProperties=$Config_Path/$PropertiesFile -Pbranch=$branch -PprojBuildVersion=$versionForBuild npm_run_build"
+                }
+            }
+            catch(Exception e)
+            {
+                catchErrorLogs(logIdentity)
+            }
+        }
+        
+        stage ('STAGE-4_Generate-Deployable')
+        {
+            logIdentity = "STAGE-4_Generate-Deployable"
+            try
+            {
+                node
+                {
+                    print "\t*********************************************    Deployable Generate    *********************************************"
+                    print "\t__________________________________________________________________________________________________________________\n"
+                    sh "cd $adminProj && gradle -DenvProperties=$Config_Path/$PropertiesFile -Pbranch=$branch -PprojBuildVersion=$versionForBuild xvelocitywar"
+                }
+            }
+            catch(Exception e)
+            {
+                catchErrorLogs(logIdentity)
+            }
+        }
+        
+        stage ('STAGE-5_Perform-Deployment')
+        {
+            logIdentity = "STAGE-5_Perform-Deployment"
+            try
+            {
+                node
+                {
+                    print "\t*********************************************    Perform Deployment    *********************************************"
+                    print "\t__________________________________________________________________________________________________________________\n"
+                    if (buildOrdeploy == 'Build_And_Deploy')
+                    {
+						 if (deployEnv == 'Acceptance1-Instance2')
+						{
+							sh "gradle -b $Script_Path/deploy.gradle -DenvProperties=$Config_Path/$PropertiesFile -PprojName=$deployableProj -PdetailsPath=$Details_Path -PEvnServers=$EvnServers -PProjectStructureCSV=$ProjectPropertiesCSV -Pbranch=$branch -Penvironment=Acceptance1 $deployOperation backupandcleanup"
+						}
+						else
+						{
+							sh "gradle -b $Script_Path/deploy.gradle -DenvProperties=$Config_Path/$PropertiesFile -PprojName=$deployableProj -PdetailsPath=$Details_Path -PEvnServers=$EvnServers -PProjectStructureCSV=$ProjectPropertiesCSV -Pbranch=$branch -Penvironment=$deployEnv $deployOperation backupandcleanup"
+						}
+                    }
+                    else
+                    {
+                        print "\n\tBuilds are ready. Please pick from builds folder "
+                    }
+                }
+            }
+            catch(Exception e)
+            {
+                catchErrorLogs(logIdentity)
+            }
+        }
+        
+        stage ('STAGE-6_Regression-Test')
+        {
+            logIdentity = "STAGE-6_Regression-Test"
+            try
+            {
+                node
+                {
+                    /*   Blocking this step as of now as we are preparing other project with the name : denver-pipeline_siteadmin-testautomation */
+                    print "\t*********************************************    Regression Test    *********************************************"
+                    print "\t__________________________________________________________________________________________________________________\n"
+                    // sh 'gradle -b ./siteAdmin-TestAutomation/build.gradle test aggregate'
+                }
+            }
+            catch(Exception e)
+            {
+                catchErrorLogs(logIdentity)
+            }
+        }
+    }
+    catch(Exception e)
+    {
+        currentBuild.result = "FAILED"
+    } 
+	finally 
+    {
+        print "Execution_Ends..."
+        // notifyBuild(currentBuild.result)
+        // slackSend (channel: "$channelname", color: '#FF8800', message: "@here Pipeline Ends, You can check Sonar Analysis report of you code at URL : http://<IPADD>:9000/dashboard/index/SonarTest:<deployable<ProjectName>> " , teamDomain: 'slackteam', token: "$channeltoken")    
+    }
+}
+
+def notifyBuild(String buildStatus = 'STARTED') 
+{
+  // build status of null means successful
+  buildStatus =  buildStatus ?: 'SUCCESSFUL'
+
+  // Default values
+  def colorName = 'RED'
+  def colorCode = '#FF0000'
+  if (deployEnv == '<EnvName>-Instance2')
+  {
+	def subject = "${buildStatus}: Job '${env.JOB_NAME} [${env.BUILD_NUMBER}]' *For Acceptance1*"
+  }
+  else
+  {
+	def subject = "${buildStatus}: Job '${env.JOB_NAME} [${env.BUILD_NUMBER}]' *For $deployEnv*"
+  }
+  def summary = "${subject} (${env.BUILD_URL})"
+  def details = """<p>STARTED: Job '${env.JOB_NAME} [${env.BUILD_NUMBER}]':</p>
+    <p>Check console output at &QUOT;<a href='${env.BUILD_URL}'>${env.JOB_NAME}</a>&QUOT;</p>"""
+
+  // Override default values based on build status
+  if (buildStatus == 'STARTED') {
+    color = 'BLUE'
+    colorCode = '#0000FF'
+  } else if (buildStatus == 'SUCCESSFUL') {
+    color = 'GREEN'
+    colorCode = '#00FF00'
+  } else {
+    color = 'RED'
+    colorCode = '#FF0000'
+  }
+  // Send notifications
+  slackSend (channel: "$channelname", color: colorCode, message: summary , teamDomain: 'capsilonteam', token: "$channeltoken")
+}
+
+def vcsOperaion(String vcsProject, String vcsBranch)
+{
+    def localGitRepo = new File("$WORKSPACE/$vcsProject/.git")
+    def headversionfile = new File("$WORKSPACE/$vcsProject/.git/FETCH_HEAD")
+    def lastCommitShell = ""
+	dir("./") 
+	{
+		withCredentials([usernamePassword(credentialsId: '97f9d0b0-974e-402e-b207-e0e92471ef2c', passwordVariable: 'git_password', usernameVariable: 'git_user')]) 
+		{
+			print "\n Importing the latest changes for $vcsProject from $vcsBranch"
+			def proj = "$vcsProject"+".git"
+			print "Project name : $proj"
+			
+			if( !headversionfile.exists() )
+            {
+                lastCommitShell = "cd $vcsProject && git rev-parse"
+                print "\n\t\t---> Last commit Shell command is: "+lastCommitShell
+            }
+            else
+            {
+                lastCommitShell = "cd $vcsProject && git rev-parse HEAD"
+                print "\n\t\t---> Last commit Shell command is: "+lastCommitShell
+            }
+		    	
+            if (localGitRepo.exists())
+            {
+                lastCommit = sh (
+                    script: lastCommitShell,
+                    returnStdout: true
+                ).trim()
+
+		    	sh "cd $vcsProject && git fetch"
+		    	sh "cd $vcsProject && git checkout $vcsBranch"
+		    	sh "cd $vcsProject && git pull"                
+            }
+            else
+            {
+                sh "git clone git@bitbucket.org:$bitbucketTeam/$proj"
+                sh "cd $vcsProject && git checkout $vcsBranch"
+                sh "cd $vcsProject && git pull"
+                
+                lastCommit = sh (
+                    script: lastCommitShell,
+                    returnStdout: true
+                ).trim()
+            }
+			print "\n\tLast commit id was : $lastCommit"
+			
+			latestCommit = sh (
+				script: "cd $vcsProject && git rev-parse HEAD",
+				returnStdout: true
+			).trim()
+			print "\n\tLatest commit id: $latestCommit"
+		
+			logIdentity = "ChangeLogs_From_GIT_$vcsProject"
+			if(!headversionfile.exists())
+			{
+			    print "\n\tThis is the first checkout and we are going to ignore changeset listing here\n"
+			}
+			else
+			{
+			    changeSets(lastCommit, latestCommit)
+			    def src = new File("$buildLogs/log")
+    			def dest = new File("$buildLogs/NodeBuildLogs")
+	    		dest.write(src.text)
+                            
+		    	def finalShareLogs = "$changelogs"
+    			print "Name of Error log file : " +finalShareLogs
+	    		trimlogs(logIdentity, finalShareLogs)
+			
+    // 			sh "curl -F file=@$buildLogs/$finalShareLogs -F channels=$channelname -F initial_comment= Change_Logs -F token=$jenkins_log_token https://slack.com/api/files.upload"
+			}
+		}
+	}
+}
+
+def trimlogs(String stringMatch, String ErrorLogName)
+{
+    def logPath = "$JENKINS_HOME/jobs/$JOB_NAME/builds/$BUILD_NUMBER"  
+    Scanner sc  = new Scanner(new FileReader("$logPath/NodeBuildLogs"));
+	FileWriter newFile = new FileWriter("$logPath/$ErrorLogName")
+	
+    List<String> list = new ArrayList<String>();
+	
+	while(sc.hasNextLine())
+    {
+        list.add(sc.nextLine());
+    }
+    
+    String[] logarray = list.toArray(new String[0])
+    for(int i=0; i<logarray.length; i++)
+    {
+        if(logarray[i].contains(stringMatch))
+        {
+            for(int j=i; j<logarray.length; j++)
+            {
+                def Temp = logarray[j];
+                if(!Temp.contains("[Pipeline]"))
+                {
+                    newFile.write(Temp+"\n")    
+                }
+            }
+        }
+        
+    }
+    newFile.close()
+}
+
+def changeSets(String lastCommitID, String currentCommitID)
+{
+    
+    print "\n\tChangeLogs_From_GIT_$adminProj"     
+    def printChangeset = ''
+    print "\n\t*********************************************   ChangeSet Listing     *********************************************"
+	print "\t__________________________________________________________________________________________________________________\n"
+	
+    sh "cd $adminProj && git log $lastCommitID..$currentCommitID --name-only"
+    
+    printChangeset = sh (
+         script: "cd $adminProj && git rev-parse HEAD",
+         returnStdout: true
+    ).trim()
+    
+    print "\n $printChangeset"
+    print "\n\t*********************************************   ChangeSet Ends     *********************************************"
+}
+
+
+def buildVersionUpdate(String versionOperation)
+{
+	def versionFilePath = "/home/capsilon/Jenkins/ProjectVersions/siteadmin"
+	env.versionProperties = "$deployEnv"+"-buildnumber-"+"$buildversion"+".properties"
+	def versionFile = "$versionFilePath/$versionProperties"
+	
+    def folder = new File("$versionFilePath")
+    def file = new File("$versionFile")
+    
+    if( !folder.exists() )
+    {
+        print "\n\tDirecotry path does not exists, Preparing a new one"
+        try
+        {
+            folder.mkdirs()
+            sh "sudo chmod -R 777 $versionFilePath"
+        }
+        catch(Exception e)
+        {
+            print "\n\t\t Could Not create Folders, Please find the reason\n"+e
+            sh "exit 1"
+        }
+    }
+
+    if(!file.exists())
+    {
+        file.createNewFile()
+        FileWriter writer = new FileWriter(file, true);
+        writer.append("buildversion=$buildversion")
+        writer.append("\n")
+        writer.close();
+    }
+
+/*	
+    Properties props = new Properties()
+    props.load(new FileInputStream(versionFile))
+    def buildversion = props.getProperty("buildversion")
+    print "\t --->Old BuildVersion Number : " + buildversion
+    
+    buildversion = buildversion.toString()
+    
+    String[] buildNumber = buildversion.split("\\.")
+    def field0 = buildNumber[0]
+    def field1 = buildNumber[1]
+    def field2 = buildNumber[2]
+    def field3 = buildNumber[3]
+    
+    Integer i = field3 as Integer
+		if(versionOperation.equals("increment"))
+		{
+			i = i+1
+		}
+	else 
+		if(versionOperation.equals("decrement"))
+		{
+			i = i-1
+		}
+	else
+		{
+			print "\n\t No increment No decrement required according to input that is '$versionOperation'. ***Keeping version same***"
+			i = i
+		}
+*/	
+	
+/*	
+    String newFileEntry = field0+"."+field1+"."+field2+"."+i
+    print "\n\t --->New BuildVersion Number: $newFileEntry"
+    boolean fileSuccessfullyDeleted = new File(versionFile).delete()
+    
+    file.createNewFile()
+    FileWriter writer = new FileWriter(file, true);
+    writer.append("buildversion=$newFileEntry")
+    writer.append("\n")
+    writer.close();
+    
+    return newFileEntry
+*/
+	
+	return buildversion
+ }
+ 
+ def getLatestCommit()
+ {
+    def latestCommit = ""
+    latestCommit = sh (
+         script: "cd $adminProj && git rev-parse --short HEAD",
+         returnStdout: true
+    ).trim()
+    
+    return latestCommit
+ }
+ 
+ def prepareVerion(String updateOperation)
+ {
+	print " Calling Update Function for buildversion preparation operation '$updateOperation'"
+	projectBuildVersion = buildVersionUpdate(updateOperation)
+	vcsCommitid = getLatestCommit()
+	finalBuildVersionEntry = "$projectBuildVersion-$vcsCommitid"
+	print "\n\t\t Final Build Version Entry: "+finalBuildVersionEntry
+	return finalBuildVersionEntry
+ }
+
+ def workspaceCleanup()
+ {
+    print "\n\tcleaning the workspace before proceeding with build."
+    sh 'pwd'
+    sh "cd $adminProj && rm -rf *.chunk.js && rm -rf *.bundle.js && rm -rf *.map && rm -rf *.chunk-debug.js && rm -rf *.bundle-debug.js"
+ }
+ 
+def catchErrorLogs(String cutLogsFrom)
+{
+	currentBuild.result = 'FAILURE'
+	node
+	{
+		versionForBuild = prepareVerion("decrement")
+	}
+	sh "cp $buildLogs/log $buildLogs/NodeBuildLogs"
+	env.finalShareLogs = cutLogsFrom+"_ErrorLogs.txt"
+	print "Name of Error log file : " +finalShareLogs
+	trimlogs(cutLogsFrom, finalShareLogs)
+        		
+// 	sh "curl -F file=@$buildLogs/$finalShareLogs -F channels=$channelname -F initial_comment= \"${BUILD_URL} -:Logs\" -F token=$jenkins_log_token https://slack.com/api/files.upload"
+// 	slackSend (channel: "$channelname", color: '#FF0000', message: "Stage 3- Compile Code issue : @chittireddy.goluguri @pratik.upare @vinay.verma @sarfraz.shaikh @shital.raiphale @chetan.khilosiya Please check  error logs at ${env.BUILD_URL}/console" , teamDomain: 'capsilonteam', token: "$channeltoken")
+	sh "exit 1"
+ }
+ 
+ def nodeModuleSearch()
+ {
+    boolean jsonPresent = false
+    String tempfile = new File("$buildLogs/$changelogs").text
+    if(tempfile.contains("package.json"))
+    {
+        jsonPresent = true
+    }
+    else
+    {
+        jsonPresent = false
+    }
+    return jsonPresent
+ }
